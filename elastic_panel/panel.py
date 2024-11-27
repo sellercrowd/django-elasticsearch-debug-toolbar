@@ -6,7 +6,7 @@ from debug_toolbar.panels import Panel
 from debug_toolbar.utils import get_stack, render_stacktrace, tidy_stacktrace
 from django.templatetags.static import static
 from django.utils.translation import gettext_lazy as _
-from elasticsearch.connection.base import Connection
+from elastic_transport import Transport
 
 
 class ThreadCollector:
@@ -25,16 +25,52 @@ class ThreadCollector:
 
 
 # Patching of the original elasticsearch log_request
-old_log_request_success = Connection.log_request_success
+old_perform_request = Transport.perform_request
 collector = ThreadCollector()
 
 
-def patched_log_request_success(self, method, full_url, path, body, status_code, response, duration):
-    collector.collect(ElasticQueryInfo(method, full_url, path, body, status_code, response, duration))
-    old_log_request_success(self, method, full_url, path, body, status_code, response, duration)
+def patched_perform_request(
+    self,
+    method: str,
+    target: str,
+    *,
+    body,
+    headers,
+    max_retries,
+    retry_on_status,
+    retry_on_timeout,
+    request_timeout,
+    client_meta,
+    otel_span,
+):
+    response = old_perform_request(
+        self,
+        method,
+        target,
+        body=body,
+        headers=headers,
+        max_retries=max_retries,
+        retry_on_status=retry_on_status,
+        retry_on_timeout=retry_on_timeout,
+        request_timeout=request_timeout,
+        client_meta=client_meta,
+        otel_span=otel_span,
+    )
+    collector.collect(
+        ElasticQueryInfo(
+            method,
+            f"{response.meta.node.scheme}://{response.meta.node.host}{target}",
+            target,
+            str(body),
+            response.meta.status,
+            response.body,
+            response.meta.duration,
+        )
+    )
+    return response
 
 
-Connection.log_request_success = patched_log_request_success
+Transport.perform_request = patched_perform_request
 
 
 def _pretty_json(data):
