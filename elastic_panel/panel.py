@@ -61,7 +61,7 @@ def patched_perform_request(
             method,
             f"{response.meta.node.scheme}://{response.meta.node.host}{target}",
             target,
-            json.dumps(body),
+            json.dumps(body) if body else "",
             response.meta.status,
             json.dumps(response.body),
             response.meta.duration,
