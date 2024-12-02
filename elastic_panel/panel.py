@@ -1,12 +1,21 @@
 import hashlib
 import json
 import threading
+from typing import Any
 
 from debug_toolbar.panels import Panel
 from debug_toolbar.utils import get_stack, render_stacktrace, tidy_stacktrace
 from django.templatetags.static import static
 from django.utils.translation import gettext_lazy as _
 from elastic_transport import Transport
+from elasticsearch import JsonSerializer as _JsonSerializer
+
+
+class JsonSerializer(_JsonSerializer):
+    def default(self, data: Any) -> Any:
+        if isinstance(data, bytes):
+            return data.decode("utf-8")
+        return super().default(data)
 
 
 class ThreadCollector:
@@ -27,6 +36,10 @@ class ThreadCollector:
 # Patching of the original elasticsearch log_request
 old_perform_request = Transport.perform_request
 collector = ThreadCollector()
+
+
+def body_to_string(body):
+    return JsonSerializer().dumps(body) if body else ""
 
 
 def patched_perform_request(
@@ -61,7 +74,7 @@ def patched_perform_request(
             method,
             f"{response.meta.node.scheme}://{response.meta.node.host}{target}",
             target,
-            json.dumps(body) if body else "",
+            body_to_string(body),
             response.meta.status,
             json.dumps(response.body),
             response.meta.duration,
